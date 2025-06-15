@@ -1,56 +1,34 @@
-import os
-import subprocess
-from datetime import datetime, timedelta
-import random
+from ultralytics import YOLO
+from ultralytics.solutions import object_counter
+import cv2
 
-# === Configuration ===
-repo_path = os.path.dirname(os.path.abspath(__file__))
-log_file_path = os.path.join(repo_path, 'log.txt')
+# Initialize YOLO model
+model = YOLO("best.pt")
 
-def get_random_int(min_val, max_val):
-    return random.randint(min_val, max_val)
 
-def format_git_date(date):
-    return date.isoformat()
+# Set up your video source
+cap = cv2.VideoCapture(0)
+classes_to_count = [0, 2,18] 
+# Initialize Object Counter for your line
+line_pedestrian_1 =  [(100, 100), (600, 100), (600, 360), (100, 360)]  # Define as per your need
+counter = object_counter.ObjectCounter()
+counter.set_args(view_img=True, reg_pts=line_pedestrian_1, classes_names=model.names)
 
-def make_commit(date, message):
-    git_date = format_git_date(date)
-
-    with open(log_file_path, 'a') as f:
-        f.write(f'{git_date} - {message}\n')
-
-    env = os.environ.copy()
-    env['GIT_AUTHOR_DATE'] = git_date
-    env['GIT_COMMITTER_DATE'] = git_date
-
-    subprocess.run(['git', 'add', '.'], cwd=repo_path, check=True)
-    subprocess.run(['git', 'commit', '-m', message, '--date', git_date],
-                   cwd=repo_path, env=env, check=True)
-
-# === Ask User for Dates ===
-date_format = "%Y-%m-%d"
-while True:
-    try:
-        start_input = input("Enter the start date (YYYY-MM-DD): ")
-        end_input = input("Enter the end date (YYYY-MM-DD): ")
-
-        start_date = datetime.strptime(start_input, date_format)
-        end_date = datetime.strptime(end_input, date_format)
-
-        if start_date > end_date:
-            raise ValueError("Start date must be before end date.")
+while cap.isOpened():
+    ret, im0 = cap.read()
+    if not ret:
         break
-    except ValueError as ve:
-        print(f"❌ Invalid input: {ve}. Please try again.")
 
-# === Commit Loop ===
-current_date = end_date
-while current_date >= start_date:
-    if random.random() < 0.3:
-        commits_today = get_random_int(1, 4)
-        for j in range(commits_today):
-            msg = f"Random Changes on {current_date.strftime('%a %b %d %Y')} #{j + 1}"
-            make_commit(current_date, msg)
-    current_date -= timedelta(days=1)
+    # Track objects
+    results = model.track(im0,persist=True, show=False, classes=classes_to_count)
 
-print("✅ Commits created. Now push to GitHub!")
+    # Start counting based on tracks and your line
+    im0 = counter.start_counting(im0, results)
+
+    # Display
+    cv2.imshow("Count", im0)
+    if cv2.waitKey(1) == ord('q'):  # press q to quit
+        break
+
+cap.release()
+cv2.destroyAllWindows()
